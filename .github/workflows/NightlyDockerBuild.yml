@@ -1,8 +1,8 @@
-name: Nightly Docker Build
+name: Monthly Docker Build
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 0 1 * *'
   workflow_dispatch:
 
 env:
@@ -67,10 +67,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: nextchatweb-nightly-${{ env.TIMESTAMP }}
-          name: Nightly Build v${{ env.TIMESTAMP }}
+          name: Monthly Build v${{ env.TIMESTAMP }}
           body: |
             Changes in this release:
-            - Nightly build release for version v${{ env.TIMESTAMP }}
+            - Monthly build release for version v${{ env.TIMESTAMP }}
             - Multi-platform support: linux/amd64, linux/arm64
             - Published to GHCR.io
           draft: false
