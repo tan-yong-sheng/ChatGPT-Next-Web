@@ -5,71 +5,73 @@ on:
     - cron: '0 0 * * *'
   workflow_dispatch:
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: nextchat-nightly
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
+      - name: Log in to GHCR.io
+        uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get current timestamp
         id: timestamp
         run: echo "TIMESTAMP=$(date -u +'%Y%m%d%H%M%S')" >> $GITHUB_ENV
 
-      - name: Build Docker image
+      - name: Generate image name
+        id: image
         run: |
-          IMAGE_NAME=$(echo ghcr.io/${{ github.repository }} | tr '[:upper:]' '[:lower:]')
-          echo "IMAGE_NAME=$IMAGE_NAME"
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME=$(echo "${{ env.REGISTRY }}/$OWNER/${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "IMAGE_NAME=$IMAGE_NAME" >> $GITHUB_ENV
-          docker build . -t $IMAGE_NAME/nextchat:${{ env.TIMESTAMP }}
+          echo "Image name: $IMAGE_NAME"
 
-      - name: Tag Docker image for Docker Hub
+      - name: Build and push multi-platform Docker image
         run: |
-          docker tag $IMAGE_NAME/nextchat:${{ env.TIMESTAMP }} ${{ secrets.DOCKER_USERNAME }}/nextchat-nightly:v${{ env.TIMESTAMP }}
-          docker tag $IMAGE_NAME/nextchat:${{ env.TIMESTAMP }} ${{ secrets.DOCKER_USERNAME }}/nextchat-nightly:latest
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
+            --tag ${{ env.IMAGE_NAME }}:v${{ env.TIMESTAMP }} \
+            --tag ${{ env.IMAGE_NAME }}:latest \
+            --push \
+            .
 
-      - name: Push Docker image to Docker Hub
+      - name: Save Docker image metadata
         run: |
-          docker push ${{ secrets.DOCKER_USERNAME }}/nextchat-nightly:v${{ env.TIMESTAMP }}
-          docker push ${{ secrets.DOCKER_USERNAME }}/nextchat-nightly:latest
-
-      - name: Save Docker image as .tar file
-        run: |
-          IMAGE_FILE=./nextchat-docker-v${{ env.TIMESTAMP }}.tar
-          docker save $IMAGE_NAME/nextchat:${{ env.TIMESTAMP }} -o $IMAGE_FILE
-          echo "Docker image saved as $IMAGE_FILE"
-          echo "ASSET_PATH=$IMAGE_FILE" >> $GITHUB_ENV
+          echo "Docker image built and pushed successfully"
+          echo "Image: ${{ env.IMAGE_NAME }}:v${{ env.TIMESTAMP }}"
+          echo "Image: ${{ env.IMAGE_NAME }}:latest"
 
       - name: Create GitHub Release
         id: create_release
         uses: softprops/action-gh-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: nextchatweb-nightly-${{ env.TIMESTAMP }}
           name: Nightly Build v${{ env.TIMESTAMP }}
           body: |
             Changes in this release:
             - Nightly build release for version v${{ env.TIMESTAMP }}
+            - Multi-platform support: linux/amd64, linux/arm64
+            - Published to GHCR.io
           draft: false
           prerelease: false
-
-      - name: Upload Docker image to GitHub Release as asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ${{ env.ASSET_PATH }}
-          asset_name: nextchat-docker-v${{ env.TIMESTAMP }}.tar
-          asset_content_type: application/x-tar
